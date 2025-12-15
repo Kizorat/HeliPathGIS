@@ -1,0 +1,40 @@
+from qgis.core import QgsProject
+import geopandas as gpd
+from shapely.geometry import Point
+import os
+
+# 1️⃣ Trova il layer dei centroidi ospedali
+layer_name = "Centroide Ospedali"
+layers = QgsProject.instance().mapLayersByName(layer_name)
+
+if not layers:
+    raise Exception(f"Layer '{layer_name}' non trovato!")
+
+layer = layers[0]
+
+# 2️⃣ Prendi la feature selezionata
+selected_features = layer.selectedFeatures()
+
+if not selected_features:
+    raise Exception("Seleziona manualmente un punto nel layer 'Centroide Ospedali'!")
+
+feat = selected_features[0]
+geom = feat.geometry()
+
+# 3️⃣ Controlla se è un point e converti in Shapely
+if geom.type() != 0:  # 0 = Point
+    raise Exception("La geometria selezionata non è un Point!")
+
+shapely_point = Point(geom.asPoint())
+
+# 4️⃣ Salva il punto come GeoJSON
+layer_path = layer.dataProvider().dataSourceUri()
+save_folder = os.path.dirname(layer_path)
+output_file = os.path.join(save_folder, "hospital_point.geojson")
+
+gdf = gpd.GeoDataFrame({'id':[feat.id()]},
+                       geometry=[shapely_point],
+                       crs="EPSG:32632")  # Modifica se necessario
+
+gdf.to_file(output_file, driver="GeoJSON")
+print(f"Punto ospedale selezionato salvato automaticamente in: {output_file}")
