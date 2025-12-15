@@ -1105,3 +1105,321 @@ def auto_path(
         logger.error(f"❌ Auto path error: {traceback.format_exc()}")
         return JSONResponse({"error": str(e)}, status_code=500)
 
+# ============================================================
+# HELICOPTER PATH ENDPOINT
+# ============================================================
+@app.get("/heli-path")
+def heli_path(
+    start_lat: float = Query(...),
+    start_lon: float = Query(...),
+    end_lat: float = Query(...),
+    end_lon: float = Query(...)
+):
+    logger.info(f"🚁 HELI PATH REQUEST: ({start_lat}, {start_lon}) → ({end_lat}, {end_lon})")
+    
+    try:
+        t_total = time.perf_counter()
+        
+        # Transform to meters
+        start_x, start_y = transformer_to32632.transform(start_lon, start_lat)
+        end_x, end_y = transformer_to32632.transform(end_lon, end_lat)
+        start_m = Point(start_x, start_y)
+        end_m = Point(end_x, end_y)
+        
+        # Compute helicopter route
+        result = compute_heli_route(start_m, end_m)
+        
+        if not result["success"]:
+            return JSONResponse({"error": result.get("error", "Unknown error")}, status_code=404)
+        
+        # Build GeoJSON response
+        h_a = int(result["auto_time_h"])
+        m_a = int((result["auto_time_h"] - h_a) * 60)
+        
+        h_h = int(result["heli_time_h"])
+        m_h = int((result["heli_time_h"] - h_h) * 60)
+        
+        h_t = int(result["total_time_h"])
+        m_t = int((result["total_time_h"] - h_t) * 60)
+        
+        hel_lon, hel_lat = result["helipad_lonlat"]
+        
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "MultiLineString", "coordinates": result["multilines_auto"]},
+                    "properties": {
+                        "mode": "auto",
+                        "distance_km": round(result["auto_km"], 2),
+                        "time_hhmm": f"{h_a:02d}:{m_a:02d}"
+                    }
+                },
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "MultiLineString", "coordinates": result["path_heli_4326"]},
+                    "properties": {
+                        "mode": "heli",
+                        "distance_km": round(result["heli_km"], 2),
+                        "time_hhmm": f"{h_h:02d}:{m_h:02d}"
+                    }
+                },
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [hel_lon, hel_lat]},
+                    "properties": {"type": "helipad"}
+                },
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [end_lon, end_lat]},
+                    "properties": {"type": "hospital"}
+                },
+                {
+                    "type": "Feature",
+                    "geometry": None,
+                    "properties": {
+                        "distance_km_total": round(result["total_km"], 2),
+                        "time_hhmm_total": f"{h_t:02d}:{m_t:02d}"
+                    }
+                }
+            ]
+        }
+        
+        logger.info(f"✅ Heli path completed in {time.perf_counter() - t_total:.3f}s")
+        return JSONResponse(geojson)
+        
+    except Exception as e:
+        logger.error(f"❌ Heli path error: {traceback.format_exc()}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+# ============================================================
+# BEST PATH ENDPOINT (Compare auto vs heli)
+# ============================================================
+@app.get("/best-path")
+def best_path(
+    start_lat: float = Query(...),
+    start_lon: float = Query(...),
+    end_lat: float = Query(...),
+    end_lon: float = Query(...)
+):
+    logger.info(f"🏆 BEST PATH REQUEST: ({start_lat}, {start_lon}) → ({end_lat}, {end_lon})")
+    
+    try:
+        t_total = time.perf_counter()
+        
+        # Transform to meters
+        start_x, start_y = transformer_to32632.transform(start_lon, start_lat)
+        end_x, end_y = transformer_to32632.transform(end_lon, end_lat)
+        start_m = Point(start_x, start_y)
+        end_m = Point(end_x, end_y)
+        
+        # Snap to road
+        snapped_start = snap_to_road(start_m, list(strade_m.geometry))
+        
+        # --- Option 1: Direct auto route ---
+        logger.info("📊 Evaluating direct auto route...")
+        t_auto = time.perf_counter()
+        
+        auto_multilines = compute_auto_path_dijkstra(snapped_start, end_m)
+        auto_info = {"available": False}
+        
+        if auto_multilines:
+            total_dist_m = 0.0
+            for segment in auto_multilines:
+                for i in range(len(segment) - 1):
+                    x1, y1 = transformer_to32632.transform(segment[i][0], segment[i][1])
+                    x2, y2 = transformer_to32632.transform(segment[i+1][0], segment[i+1][1])
+                    total_dist_m += Point(x1, y1).distance(Point(x2, y2))
+            
+            auto_km = total_dist_m / 1000.0
+            auto_time_h = auto_km / AUTO_SPEED_KMH
+            auto_info = {
+                "available": True,
+                "multilines": auto_multilines,
+                "auto_km": auto_km,
+                "auto_time_h": auto_time_h
+            }
+            logger.info(f"   ✅ Direct auto: {auto_km:.2f} km, {auto_time_h*60:.1f} min ({time.perf_counter() - t_auto:.3f}s)")
+        else:
+            logger.warning(f"   ⚠️  Direct auto route not found ({time.perf_counter() - t_auto:.3f}s)")
+        
+        # --- Option 2: Helicopter route ---
+        logger.info("📊 Evaluating helicopter route...")
+        t_heli = time.perf_counter()
+        
+        heli_info = compute_heli_route(snapped_start, end_m)
+        heli_info["available"] = heli_info.get("success", False)
+        
+        if heli_info["available"]:
+            logger.info(f"   ✅ Helicopter: {heli_info['total_km']:.2f} km, {heli_info['total_time_h']*60:.1f} min ({time.perf_counter() - t_heli:.3f}s)")
+        else:
+            logger.warning(f"   ⚠️  Helicopter route not found: {heli_info.get('error', 'Unknown')} ({time.perf_counter() - t_heli:.3f}s)")
+        
+        # --- Choose best option ---
+        candidates = []
+        if auto_info.get("available"):
+            candidates.append(("auto", auto_info["auto_time_h"]))
+        if heli_info.get("available"):
+            candidates.append(("heli", heli_info["total_time_h"]))
+        
+        if not candidates:
+            return JSONResponse({"error": "No route available (neither auto nor helicopter)"}, status_code=404)
+        
+        best_mode, best_time = min(candidates, key=lambda x: x[1])
+        logger.info(f"🏆 Best option: {best_mode.upper()} ({best_time*60:.1f} min)")
+        
+        # --- Build GeoJSON response ---
+        features = []
+        
+        # Add auto route if available
+        if auto_info.get("available"):
+            h = int(auto_info["auto_time_h"])
+            m = int((auto_info["auto_time_h"] - h) * 60)
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "MultiLineString", "coordinates": auto_info["multilines"]},
+                "properties": {
+                    "mode": "auto",
+                    "distance_km": round(auto_info["auto_km"], 2),
+                    "time_hhmm": f"{h:02d}:{m:02d}",
+                    "is_best": best_mode == "auto"
+                }
+            })
+        
+        # Add helicopter route if available
+        if heli_info.get("available"):
+            # Auto segment to helipad
+            h_a = int(heli_info["auto_time_h"])
+            m_a = int((heli_info["auto_time_h"] - h_a) * 60)
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "MultiLineString", "coordinates": heli_info["multilines_auto"]},
+                "properties": {
+                    "mode": "auto_to_helipad",
+                    "distance_km": round(heli_info["auto_km"], 2),
+                    "time_hhmm": f"{h_a:02d}:{m_a:02d}",
+                    "is_best": best_mode == "heli"
+                }
+            })
+            
+            # Flight segment
+            h_h = int(heli_info["heli_time_h"])
+            m_h = int((heli_info["heli_time_h"] - h_h) * 60)
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "MultiLineString", "coordinates": heli_info["path_heli_4326"]},
+                "properties": {
+                    "mode": "heli",
+                    "distance_km": round(heli_info["heli_km"], 2),
+                    "time_hhmm": f"{h_h:02d}:{m_h:02d}",
+                    "is_best": best_mode == "heli"
+                }
+            })
+            
+            # Helipad and hospital markers
+            hel_lon, hel_lat = heli_info["helipad_lonlat"]
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [hel_lon, hel_lat]},
+                "properties": {"type": "helipad"}
+            })
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [end_lon, end_lat]},
+                "properties": {"type": "hospital"}
+            })
+        
+        # CALCOLA I VALORI TOTALI CORRETTI
+        distance_km_total = 0
+        time_hhmm_total = "00:00"
+        
+        if best_mode == "auto" and auto_info.get("available"):
+            distance_km_total = auto_info["auto_km"]
+            time_h = auto_info["auto_time_h"]
+        elif best_mode == "heli" and heli_info.get("available"):
+            distance_km_total = heli_info["total_km"]
+            time_h = heli_info["total_time_h"]
+        
+        # Converti tempo in formato HH:MM
+        hours = int(time_h)
+        minutes = int((time_h - hours) * 60)
+        time_hhmm_total = f"{hours:02d}:{minutes:02d}"
+        
+        # Crea il messaggio di confronto
+        comparison_message = ""
+        if auto_info.get("available") and heli_info.get("available"):
+            auto_time_min = auto_info["auto_time_h"] * 60
+            heli_time_min = heli_info["total_time_h"] * 60
+            time_diff = abs(auto_time_min - heli_time_min)
+            
+            if best_mode == "auto":
+                comparison_message = (
+                    f"🏆 PERCORSO PIÙ VELOCE: AUTO\n\n"
+                    f"🚗 Auto: {auto_info['auto_km']:.2f} km, {auto_time_min:.1f} min\n"
+                    f"🚁 Elicottero: {heli_info['total_km']:.2f} km, {heli_time_min:.1f} min\n\n"
+                    f"Risparmio di tempo: {time_diff:.1f} min"
+                )
+            else:
+                comparison_message = (
+                    f"🏆 PERCORSO PIÙ VELOCE: ELICOTTERO\n\n"
+                    f"🚁 Elicottero: {heli_info['total_km']:.2f} km, {heli_time_min:.1f} min\n"
+                    f"🚗 Auto: {auto_info['auto_km']:.2f} km, {auto_time_min:.1f} min\n\n"
+                    f"Risparmio di tempo: {time_diff:.1f} min"
+                )
+        elif auto_info.get("available"):
+            auto_time_min = auto_info["auto_time_h"] * 60
+            comparison_message = (
+                f"🏆 PERCORSO DISPONIBILE: AUTO\n\n"
+                f"🚗 Auto: {auto_info['auto_km']:.2f} km, {auto_time_min:.1f} min\n"
+                f"🚁 Elicottero: Non disponibile"
+            )
+        elif heli_info.get("available"):
+            heli_time_min = heli_info["total_time_h"] * 60
+            comparison_message = (
+                f"🏆 PERCORSO DISPONIBILE: ELICOTTERO\n\n"
+                f"🚁 Elicottero: {heli_info['total_km']:.2f} km, {heli_time_min:.1f} min\n"
+                f"🚗 Auto: Non disponibile"
+            )
+        
+        # Summary
+        summary = {
+            "best_mode": best_mode,
+            "best_time_h": round(best_time, 4),
+            "best_time_min": round(best_time * 60, 1),
+            "auto_available": bool(auto_info.get("available", False)),
+            "heli_available": bool(heli_info.get("available", False))
+        }
+        
+        if auto_info.get("available"):
+            summary["auto_time_h"] = round(auto_info["auto_time_h"], 4)
+            summary["auto_km"] = round(auto_info["auto_km"], 3)
+        
+        if heli_info.get("available"):
+            summary["heli_time_h"] = round(heli_info["total_time_h"], 4)
+            summary["heli_km"] = round(heli_info["total_km"], 3)
+        
+        # Aggiungi la feature di summary con TUTTI i campi necessari
+        features.append({
+            "type": "Feature",
+            "geometry": None,
+            "properties": {
+                "is_summary": True,
+                "comparison_message": comparison_message,
+                "best_mode": summary.get("best_mode", ""),
+                "best_time_min": summary.get("best_time_min", 0),
+                "auto_available": summary.get("auto_available", False),
+                "heli_available": summary.get("heli_available", False),
+                "distance_km_total": round(distance_km_total, 2),
+                "time_hhmm_total": time_hhmm_total
+            }
+        })
+        
+        logger.info(f"✅ Best path completed in {time.perf_counter() - t_total:.3f}s")
+        logger.info(f"   📊 Distance: {distance_km_total:.2f} km, Time: {time_hhmm_total}")
+        
+        return JSONResponse({"type": "FeatureCollection", "features": features})
+        
+    except Exception as e:
+        logger.error(f"❌ Best path error: {traceback.format_exc()}")
+        return JSONResponse({"error": str(e)}, status_code=500)
