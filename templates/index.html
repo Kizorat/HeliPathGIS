@@ -9,20 +9,239 @@
     body { font-family: Arial; margin:0; padding:0; }
     header { padding:10px; background:#2b7bb9; color:white; }
     #controls { padding:10px; background:#f5f5f5; display:flex; gap:12px; flex-wrap:wrap; align-items:center;}
-    #map { height: calc(100vh - 140px); }
-    .btn { padding:8px 12px; border:none; border-radius:4px; cursor:pointer; background:#2b7bb9; color:white; }
-    .btn.secondary { background:#4a4a4a; }
-    .layer-toggle { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-    .legend { background:white; padding:8px; border-radius:6px; box-shadow:0 1px 4px rgba(0,0,0,0.2); }
-    .legend label { display:flex; align-items:center; gap:4px; }
+    
+    /* Contenitore mappa + leggenda */
+    #mapContainer { 
+      display: flex; 
+      height: calc(100vh - 140px);
+      gap: 10px;
+      padding: 10px;
+      background: #f9f9f9;
+    }
+    
+    #map { 
+      flex: 1;
+      border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    /* Stile per quando la mappa è in caricamento */
+    #map.map-loading {
+      filter: brightness(0.4) !important;
+      transition: filter 0.3s ease;
+    }
+    
+    #legendContainer {
+      width: 280px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+      padding: 15px;
+      overflow-y: auto;
+      max-height: calc(100vh - 140px);
+    }
+
+    /* Stili leggenda */
+    #legendContainer h4 {
+      margin: 0 0 15px 0;
+      color: #2c3e50;
+      border-bottom: 3px solid #3498db;
+      padding-bottom: 8px;
+      font-size: 16px;
+    }
+
+    .legend-section-title {
+      font-weight: bold;
+      color: #2c3e50;
+      margin-top: 15px;
+      margin-bottom: 8px;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .legend-color-box {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      flex-shrink: 0;
+      border: 2px solid;
+    }
+
+    .legend-color-box.nofly {
+      background-color: rgba(255, 0, 0, 0.3);
+      border-color: #ff0000;
+    }
+
+    .legend-color-box.green {
+      background-color: rgba(39, 174, 96, 0.3);
+      border-color: #27ae60;
+    }
+
+    .legend-icon {
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .legend-line {
+      width: 25px;
+      height: 3px;
+      border: 1px solid #ddd;
+      flex-shrink: 0;
+    }
+
+    .legend-line.yellow {
+      background-color: #ffff00;
+    }
+
+    .legend-line.blue {
+      background-color: #0000FF;
+    }
+
+    .legend-text {
+      font-size: 12px;
+      line-height: 1.3;
+    }
+
+    .legend-text strong {
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .legend-text .subtitle {
+      font-size: 11px;
+      color: #666;
+    }
+
+    .legend-warning {
+      margin-top: 15px;
+      padding: 10px;
+      background-color: #fff3cd;
+      border-left: 4px solid #ff6b6b;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #333;
+    }
+
+    .legend-warning strong {
+      color: #d32f2f;
+    }
+
+    /* SPINNER DI CARICAMENTO - MODIFICATO PER ESSERE PIÙ VISIBILE */
+    #loadingSpinner {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.85); /* Più scuro */
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+      backdrop-filter: blur(2px); /* Effetto sfocato */
+    }
+
+    #loadingSpinner p {
+      color: white;
+      font-size: 18px;
+      margin-top: 20px;
+      font-weight: bold;
+      text-shadow: 1px 1px 3px rgba(0,0,0,0.7);
+    }
+
+    .spinner {
+      border: 8px solid rgba(243, 243, 243, 0.3);
+      border-top: 8px solid #2b7bb9;
+      border-radius: 50%;
+      width: 70px; /* Più grande */
+      height: 70px;
+      animation: spin 1s linear infinite;
+      box-shadow: 0 0 20px rgba(43, 123, 185, 0.5);
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    .btn { 
+      padding:8px 12px; 
+      border:none; 
+      border-radius:4px; 
+      cursor:pointer; 
+      background:#2b7bb9; 
+      color:white; 
+      font-weight: bold;
+      transition: all 0.3s ease;
+    }
+    
+    .btn:hover {
+      background: #1a5a8a;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    
+    .btn:active {
+      transform: translateY(0);
+    }
+    
+    .btn.secondary { 
+      background:#4a4a4a; 
+    }
+    
+    .btn.secondary:hover {
+      background: #333;
+    }
+    
+    .layer-toggle { 
+      display:flex; 
+      gap:8px; 
+      align-items:center; 
+      flex-wrap:wrap; 
+    }
+    
+    .legend { 
+      background:white; 
+      padding:12px; 
+      border-radius:6px; 
+      box-shadow:0 1px 4px rgba(0,0,0,0.2); 
+    }
+    
+    .legend label { 
+      display:flex; 
+      align-items:center; 
+      gap:6px; 
+      cursor: pointer;
+    }
+    
+    .legend label input[type="checkbox"] {
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
-  <header><h2>WebApp QGIS — Visualizzazione & Routing</h2></header>
+  <!-- SPINNER DI CARICAMENTO -->
+  <div id="loadingSpinner" style="display: none;">
+    <div class="spinner"></div>
+    <p id="loadingText">Calcolo percorso in corso...</p>
+  </div>
+
+  <header>
+    <h2>WebApp QGIS — Visualizzazione & Routing</h2>
+    <p style="font-size: 12px; margin: 5px 0 0 0; opacity: 0.9;">
+      Seleziona un centroide (punto rosso), un ospedale, poi scegli il tipo di percorso
+    </p>
+  </header>
 
   <div id="controls">
-
-
     <div class="layer-toggle legend">
       <strong>Layer</strong>
       <label><input type="checkbox" id="chkStrade" checked> Strade</label>
@@ -31,15 +250,116 @@
     </div>
 
     <div style="margin-left:auto; display:flex; gap:8px;">
-      <button id="specialBtn" class="btn">Percorso Migliore</button>
-      <button id="autoPathBtn" class="btn">Percorso Auto</button>
-      <button id="heliPathBtn"  class="btn">Percorso con Elicottero</button>
-      <button id="clearRoutes" class="btn secondary">Cancella percorsi</button>
-      
+      <button id="specialBtn" class="btn" title="Calcola il percorso più veloce tra auto e elicottero">Percorso Migliore</button>
+      <button id="autoPathBtn" class="btn" title="Calcola solo il percorso stradale">Percorso Auto</button>
+      <button id="heliPathBtn" class="btn" title="Calcola percorso misto con elicottero">Percorso con Elicottero</button>
+      <!-- Aggiungi questo pulsante nel div dei controlli, insieme agli altri pulsanti -->
+      <button id="nearestHospitalViaHeliportBtn" class="btn" title="Trova eliporto più vicino" style="background-color: #8e44ad;">Ospedale più Vicino</button>
+      <button id="clearRoutes" class="btn secondary" title="Rimuovi tutti i percorsi dalla mappa">Cancella percorsi</button>
     </div>
   </div>
 
-  <div id="map"></div>
+  <!-- Contenitore Mappa + Leggenda -->
+  <div id="mapContainer">
+    <div id="map"></div>
+    
+    <!-- LEGGENDA STATICA -->
+    <div id="legendContainer">
+      <h4>📍 LEGENDA</h4>
+
+      <!-- ZONE VOLO -->
+      <div class="legend-section-title">Zone Volo</div>
+      
+      <div class="legend-item">
+        <div class="legend-color-box nofly"></div>
+        <div class="legend-text">
+          <strong style="color: #d32f2f;">NO-FLY ZONE</strong>
+          <span class="subtitle">Vietato al volo</span>
+        </div>
+      </div>
+
+      <div class="legend-item">
+        <div class="legend-color-box green"></div>
+        <div class="legend-text">
+          <strong style="color: #27ae60;">GREEN ZONE</strong>
+          <span class="subtitle">Consentito volo</span>
+        </div>
+      </div>
+
+      <!-- ELEMENTI MAPPA -->
+      <div class="legend-section-title">Elementi Mappa</div>
+
+      <div class="legend-item">
+        <div style="width: 20px; height: 20px; border-radius: 50%; background: orange; border: 2px solid darkorange; flex-shrink: 0;"></div>
+        <div class="legend-text">
+          <strong>Centroide selezionato</strong>
+          <span class="subtitle">Punto di partenza</span>
+        </div>
+      </div>
+
+      <div class="legend-item">
+        <span class="legend-icon">🚁</span>
+        <div class="legend-text">
+          <strong>Area atterraggio</strong>
+          <span class="subtitle">Punto di atterraggio elicottero</span>
+        </div>
+      </div>
+
+      <div class="legend-item">
+        <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png" 
+             alt="Ospedale" 
+             style="width: 15px; height: 24px; flex-shrink: 0;">
+        <div class="legend-text">
+          <strong>Ospedale</strong>
+          <span class="subtitle">Struttura sanitaria</span>
+        </div>
+      </div>
+
+      <div class="legend-item">
+        <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png" 
+             alt="Ospedale selezionato" 
+             style="width: 15px; height: 24px; flex-shrink: 0;">
+        <div class="legend-text">
+          <strong>Ospedale selezionato</strong>
+          <span class="subtitle">Destinazione</span>
+        </div>
+      </div>
+
+      <!-- PERCORSI -->
+      <div class="legend-section-title">Percorsi</div>
+
+      <div class="legend-item">
+        <div class="legend-line" style="background-color: yellow; width: 25px; height: 5px;"></div>
+        <div class="legend-text">
+          <strong style="color: #e6b800;">Percorso elicottero</strong>
+          <span class="subtitle">Tratto aereo</span>
+        </div>
+      </div>
+
+      <div class="legend-item">
+        <div class="legend-line" style="background-color: grey; width: 25px; height: 5px;"></div>
+        <div class="legend-text">
+          <strong style="color: #666;">Percorso auto</strong>
+          <span class="subtitle">Tratto stradale</span>
+        </div>
+      </div>
+
+      <div class="legend-item">
+        <div class="legend-line" style="background-color: red; width: 25px; height: 5px;"></div>
+        <div class="legend-text">
+          <strong style="color: #d32f2f;">Percorso auto di collegamento</strong>
+          <span class="subtitle">Da/verso eliporto</span>
+        </div>
+      </div>
+
+      <div class="legend-warning">
+        <strong>ℹ️ Istruzioni:</strong><br>
+        1. Clicca su un centroide (punto rosso)<br>
+        2. Clicca su un ospedale<br>
+        3. Scegli il tipo di percorso
+      </div>
+    </div>
+  </div>
   
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
